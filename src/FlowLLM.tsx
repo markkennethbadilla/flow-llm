@@ -12,9 +12,20 @@ import {
     Coins,
     Database,
     RefreshCcw,
-    Server
+    Server,
+    Loader2
 } from "lucide-react"
+// Assuming @/lib/ai-service exists in the standalone project or user will provide it.
+// If this is a standalone repo, we might need a mock ai-service or relative path.
+// For now, mirroring the portfolio file structure.
 import { generateAIResponse } from "@/lib/ai-service"
+import { pipeline } from "@xenova/transformers"
+
+// Add type for valid pipeline tasks if needed, or use any
+type EmbeddingPipeline = any
+
+// Global singleton to prevent reloading on re-renders
+let embeddingPipeline: EmbeddingPipeline | null = null
 
 interface Message {
     id: string
@@ -25,34 +36,17 @@ interface Message {
     costSaved?: number
 }
 
-// Simple Levenshtein distance for fuzzy matching demo
-const getSimilarity = (s1: string, s2: string) => {
-    const longer = s1.length > s2.length ? s1 : s2
-    const shorter = s1.length > s2.length ? s2 : s1
-    const longerLength = longer.length
-    if (longerLength === 0) return 1.0
-    return (longerLength - editDistance(longer, shorter)) / parseFloat(longerLength.toString())
-}
-
-const editDistance = (s1: string, s2: string) => {
-    const costs = new Array()
-    for (let i = 0; i <= s1.length; i++) {
-        let lastValue = i
-        for (let j = 0; j <= s2.length; j++) {
-            if (i === 0) costs[j] = j
-            else {
-                if (j > 0) {
-                    let newValue = costs[j - 1]
-                    if (s1.charAt(i - 1) !== s2.charAt(j - 1))
-                        newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1
-                    costs[j - 1] = lastValue
-                    lastValue = newValue
-                }
-            }
-        }
-        if (i > 0) costs[s2.length] = lastValue
+// Cosine Similarity for Vector comparison
+const cosineSimilarity = (a: number[], b: number[]) => {
+    let dotProduct = 0
+    let magnitudeA = 0
+    let magnitudeB = 0
+    for (let i = 0; i < a.length; i++) {
+        dotProduct += a[i] * b[i]
+        magnitudeA += a[i] * a[i]
+        magnitudeB += b[i] * b[i]
     }
-    return costs[s2.length]
+    return dotProduct / (Math.sqrt(magnitudeA) * Math.sqrt(magnitudeB))
 }
 
 export default function FlowLLM() {
@@ -61,11 +55,40 @@ export default function FlowLLM() {
     ])
     const [input, setInput] = useState("")
     const [loading, setLoading] = useState(false)
+    const [modelLoading, setModelLoading] = useState(true)
 
-    // The "Cache" - just an in-memory map for the demo
-    // Key: User Prompt, Value: Assistant Response
-    const [cache, setCache] = useState<Record<string, string>>({})
+    // The "Cache" - stores { vector, response }
+    const [cache, setCache] = useState<Record<string, { vector: number[], response: string }>>({})
     const [totalSaved, setTotalSaved] = useState(0)
+
+    // Load Model on Mount
+    useEffect(() => {
+        const loadModel = async () => {
+            if (!embeddingPipeline) {
+                try {
+                    // Use specific model, quantized for browser
+                    embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+                        quantized: true,
+                    })
+                } catch (e) {
+                    console.error("Failed to load embeddings model", e)
+                }
+            }
+            setModelLoading(false)
+        }
+        loadModel()
+    }, [])
+
+    const getEmbedding = async (text: string): Promise<number[] | null> => {
+        if (!embeddingPipeline) return null
+        try {
+            const output = await embeddingPipeline(text, { pooling: 'mean', normalize: true })
+            return Array.from(output.data)
+        } catch (e) {
+            console.error(e)
+            return null
+        }
+    }
 
     // Auto-scroll
     const bottomRef = useRef<HTMLDivElement>(null)
@@ -81,20 +104,28 @@ export default function FlowLLM() {
         setInput("")
         setLoading(true)
 
-        // Check Cache (Fuzzy Match > 80%)
-        let cachedResponse = null
-        const threshold = 0.8
+        // Generate Embedding for current input
+        const inputVector = await getEmbedding(input)
 
-        for (const [cachedPrompt, cachedReply] of Object.entries(cache)) {
-            if (getSimilarity(input.toLowerCase(), cachedPrompt.toLowerCase()) > threshold) {
-                cachedResponse = cachedReply
-                break
+        let cachedResponse = null
+        let similarityScore = 0
+
+        // Check Cache (Cosine Similarity > 0.9)
+        const threshold = 0.90
+
+        if (inputVector) {
+            for (const [key, entry] of Object.entries(cache)) {
+                const score = cosineSimilarity(inputVector, entry.vector)
+                if (score > threshold && score > similarityScore) {
+                    similarityScore = score
+                    cachedResponse = entry.response
+                }
             }
         }
 
         if (cachedResponse) {
             // CACHE HIT
-            await new Promise(r => setTimeout(r, 100)) // Instant!
+            await new Promise(r => setTimeout(r, 50)) // tiny delay for UI
             const cost = 0.002 // Mock cost per query
             setTotalSaved(prev => prev + cost)
 
@@ -119,8 +150,16 @@ export default function FlowLLM() {
                 costSaved: 0
             }])
 
-            // Update Cache
-            setCache(prev => ({ ...prev, [input]: res.text }))
+            // Update Cache with vector
+            if (inputVector) {
+                setCache(prev => ({
+                    ...prev,
+                    [input]: {
+                        vector: inputVector,
+                        response: res.text
+                    }
+                }))
+            }
         }
 
         setLoading(false)
@@ -132,7 +171,7 @@ export default function FlowLLM() {
             <div className="flex items-center justify-between px-6 py-4 bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">
                 <div className="flex items-center gap-3">
                     <div className="p-2 bg-violet-100 dark:bg-violet-900/30 rounded-lg text-violet-600 dark:text-violet-400">
-                        <Zap className="w-5 h-5" />
+                        {modelLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
                     </div>
                     <div>
                         <h2 className="font-semibold text-slate-900 dark:text-slate-100">FlowLLM Proxy</h2>
@@ -236,10 +275,10 @@ export default function FlowLLM() {
                     />
                     <button
                         type="submit"
-                        disabled={!input.trim() || loading}
+                        disabled={!input.trim() || loading || modelLoading}
                         className="absolute right-2 p-1.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        <Send className="w-4 h-4" />
+                        {modelLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     </button>
                 </form>
             </div>

@@ -27,21 +27,30 @@ A proxy that intercepts requests and generates vector embeddings (via all-MiniLM
 - Improves p99 latency from ~800ms to <20ms for cache hits
 - Adds resilience against external API outages
 
-## AI Integration
+## Technical Architecture
 
-Uses 'Fuzzy Matching' via embeddings. The system recognizes that 'Hello there' and 'Hi' are semantically close enough to share a cached response, unlike traditional exact-string matching.
+The application uses **Transformers.js** to run the `all-MiniLM-L6-v2` model directly in the browser.
 
-## Features
+1.  **On Mount**: The model (~20MB quantized) is loaded into the browser via WebAssembly.
+2.  **On Input**: The user's prompt is tokenized and passed through the model to generate a 384-dimensional vector.
+3.  **On Cache Check**: The new vector is compared against all cached vectors using **Cosine Similarity**.
+4.  **Threshold**: If similarity > 0.90, the cached response is returned.
 
-- Semantic query matching using embeddings
-- ~40% cost reduction on average
-- 12ms latency for cache hits
-- Local fallback for reliability
-- Real-time savings dashboard
+## Getting Started
 
-## Development
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/markkennethbadilla/flow-llm.git
+   ```
 
-This is a standalone project repository linked from the main portfolio at [markkennethbadilla.com](https://markkennethbadilla.com).
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Run the project (requires a Next.js environment).
+
+**Note:** This project downloads a model corresponding to ~20MB of data on first load.
 
 ## License
 
