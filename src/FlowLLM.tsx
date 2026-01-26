@@ -19,7 +19,11 @@ import {
 // If this is a standalone repo, we might need a mock ai-service or relative path.
 // For now, mirroring the portfolio file structure.
 import { generateAIResponse } from "@/lib/ai-service"
-import { pipeline } from "@xenova/transformers"
+import { pipeline, env } from "@xenova/transformers"
+
+// Allow remote model loading from Hugging Face hub
+env.allowLocalModels = false;
+env.useBrowserCache = true;
 
 // Add type for valid pipeline tasks if needed, or use any
 type EmbeddingPipeline = any
@@ -91,10 +95,15 @@ export default function FlowLLM() {
     }
 
     // Auto-scroll
-    const bottomRef = useRef<HTMLDivElement>(null)
+    const scrollRef = useRef<HTMLDivElement>(null)
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-    }, [messages])
+        if (scrollRef.current) {
+            scrollRef.current.scrollTo({
+                top: scrollRef.current.scrollHeight,
+                behavior: messages.length <= 1 ? "auto" : "smooth"
+            })
+        }
+    }, [messages, loading])
 
     const handleSend = async () => {
         if (!input.trim() || loading) return
@@ -166,7 +175,7 @@ export default function FlowLLM() {
     }
 
     return (
-        <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800">
+        <div className="flex flex-col h-[600px] max-h-[70vh] min-h-[400px] bg-slate-50 dark:bg-slate-900 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">
                 <div className="flex items-center gap-3">
@@ -191,7 +200,10 @@ export default function FlowLLM() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div
+                ref={scrollRef}
+                className="flex-1 overflow-y-auto p-6 space-y-6"
+            >
                 {messages.map((msg) => (
                     <motion.div
                         key={msg.id}
@@ -257,7 +269,6 @@ export default function FlowLLM() {
                         </div>
                     </div>
                 )}
-                <div ref={bottomRef} />
             </div>
 
             {/* Input */}
