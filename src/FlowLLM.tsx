@@ -175,7 +175,7 @@ export default function FlowLLM() {
     }
 
     return (
-        <div className="flex flex-col h-[600px] max-h-[calc(100vh-200px)] min-h-[400px] bg-slate-50 dark:bg-slate-900 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800">
+        <div className="flex flex-col h-auto max-h-[calc(100vh-200px)] min-h-[400px] bg-slate-50 dark:bg-slate-900 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">
                 <div className="flex items-center gap-3">
