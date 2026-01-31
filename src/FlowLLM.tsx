@@ -15,15 +15,8 @@ import {
     Server,
     Loader2
 } from "lucide-react"
-// Assuming @/lib/ai-service exists in the standalone project or user will provide it.
-// If this is a standalone repo, we might need a mock ai-service or relative path.
-// For now, mirroring the portfolio file structure.
 import { generateAIResponse } from "@/lib/ai-service"
-import { pipeline, env } from "@xenova/transformers"
-
-// Allow remote model loading from Hugging Face hub
-env.allowLocalModels = false;
-env.useBrowserCache = true;
+import { pipeline } from "@xenova/transformers"
 
 // Add type for valid pipeline tasks if needed, or use any
 type EmbeddingPipeline = any
@@ -148,19 +141,27 @@ export default function FlowLLM() {
             }])
         } else {
             // CACHE MISS - Call AI Service
-            const res = await generateAIResponse(input, "You are a helpful AI assistant. Be concise.")
+            // CACHE MISS - Call AI Service
+            // Prepend Question: to help the model identify the task and avoid evasive filler
+            const res = await generateAIResponse(`Question: ${input}`, "You are a helpful AI assistant. Answer the user's question directly and concisely.")
+
+            // Check for rate limiting or errors - show friendly message
+            const isRateLimited = res.source === "rate-limited"
+            const isError = res.source === "error"
 
             setMessages(prev => [...prev, {
                 id: (Date.now() + 1).toString(),
                 role: "assistant",
-                content: res.text,
+                content: isRateLimited 
+                    ? "⏳ **Whoa, slow down!** You're sending requests too fast. Please wait a moment before trying again."
+                    : res.text,
                 isCached: false,
                 latency: res.latencyMs,
                 costSaved: 0
             }])
 
             // Update Cache with vector
-            if (inputVector) {
+            if (inputVector && !isRateLimited && !isError) {
                 setCache(prev => ({
                     ...prev,
                     [input]: {
