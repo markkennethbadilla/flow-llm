@@ -16,13 +16,11 @@ import {
     Loader2
 } from "lucide-react"
 import { generateAIResponse } from "@/lib/ai-service"
-import { pipeline } from "@xenova/transformers"
 
-// Add type for valid pipeline tasks if needed, or use any
-type EmbeddingPipeline = any
-
+// Dynamic import for @xenova/transformers (must be loaded at runtime, not build time)
 // Global singleton to prevent reloading on re-renders
-let embeddingPipeline: EmbeddingPipeline | null = null
+let embeddingPipeline: any = null
+let pipelineLoading: Promise<any> | null = null
 
 interface Message {
     id: string
@@ -61,15 +59,26 @@ export default function FlowLLM() {
     // Load Model on Mount
     useEffect(() => {
         const loadModel = async () => {
-            if (!embeddingPipeline) {
+            if (!embeddingPipeline && !pipelineLoading) {
                 try {
-                    // Use specific model, quantized for browser
-                    embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
-                        quantized: true,
-                    })
+                    // Dynamic import to avoid SSR/Turbopack issues
+                    pipelineLoading = (async () => {
+                        const transformers = await import('@xenova/transformers')
+                        // Force fetching from Hugging Face CDN, not local
+                        transformers.env.allowLocalModels = false
+                        // Use specific model, quantized for browser
+                        embeddingPipeline = await transformers.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+                            quantized: true,
+                        })
+                        return embeddingPipeline
+                    })()
+                    await pipelineLoading
                 } catch (e) {
                     console.error("Failed to load embeddings model", e)
+                    pipelineLoading = null
                 }
+            } else if (pipelineLoading) {
+                await pipelineLoading
             }
             setModelLoading(false)
         }
@@ -112,8 +121,8 @@ export default function FlowLLM() {
         let cachedResponse = null
         let similarityScore = 0
 
-        // Check Cache (Cosine Similarity > 0.9)
-        const threshold = 0.90
+        // Check Cache (Cosine Similarity > 0.85)
+        const threshold = 0.85
 
         if (inputVector) {
             for (const [key, entry] of Object.entries(cache)) {
